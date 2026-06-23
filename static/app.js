@@ -4,6 +4,135 @@ let selectedRackId = null;
 let currentFilter = 'all';
 let currentZone = 'all';
 
+// Detect if running on GitHub Pages (static environment)
+const isStaticPages = window.location.hostname.endsWith('github.io') || window.location.protocol === 'file:';
+
+// Mock catalogs for static fallback mode
+const MOCK_PRODUCTS = {
+    "5449000000096": "Coca-Cola Classic (330ml)",
+    "7622300440606": "Oreo Original Cookies",
+    "0028400070560": "Lay's Classic Potato Chips",
+    "5449000131806": "Sprite Lemon-Lime Soda",
+    "3017620422003": "Nutella Hazelnut Spread",
+    "0012044000302": "Lipton Yellow Label Tea",
+    "7613034626844": "Nescafe Classic Coffee",
+    "8000300181515": "Barilla Spaghetti No.5",
+    "123456789012": "Instant Ramen Pack",
+    "987654321098": "Organic Wheat Flour (1kg)",
+    "8901138815431": "himalaya face wash"
+};
+
+const SHELF_LIFE_DAYS = {
+    "Coca-Cola Classic (330ml)": 90,
+    "Oreo Original Cookies": 120,
+    "Lay's Classic Potato Chips": 90,
+    "Sprite Lemon-Lime Soda": 90,
+    "Nutella Hazelnut Spread": 180,
+    "Lipton Yellow Label Tea": 365,
+    "Nescafe Classic Coffee": 365,
+    "Barilla Spaghetti No.5": 365,
+    "Instant Ramen Pack": 180,
+    "Organic Wheat Flour (1kg)": 365,
+    "himalaya face wash": 730
+};
+
+function getShelfLifeDays(productName) {
+    if (!productName) return 30;
+    const nameLower = productName.toLowerCase();
+    if (SHELF_LIFE_DAYS[productName]) {
+        return SHELF_LIFE_DAYS[productName];
+    }
+    if (nameLower.includes("milk") || nameLower.includes("dairy") || nameLower.includes("yogurt")) {
+        return 7;
+    }
+    if (nameLower.includes("bread") || nameLower.includes("bun") || nameLower.includes("bakery")) {
+        return 5;
+    }
+    if (nameLower.includes("coca-cola") || nameLower.includes("coke") || nameLower.includes("sprite") || nameLower.includes("soda") || nameLower.includes("beverage") || nameLower.includes("juice")) {
+        return 90;
+    }
+    if (nameLower.includes("cookie") || nameLower.includes("biscuit") || nameLower.includes("chip") || nameLower.includes("snack")) {
+        return 120;
+    }
+    if (nameLower.includes("flour") || nameLower.includes("spaghetti") || nameLower.includes("pasta") || nameLower.includes("rice") || nameLower.includes("grain") || nameLower.includes("tea") || nameLower.includes("coffee")) {
+        return 365;
+    }
+    if (nameLower.includes("face wash") || nameLower.includes("shampoo") || nameLower.includes("soap") || nameLower.includes("cream") || nameLower.includes("cosmetic") || nameLower.includes("lotion")) {
+        return 730;
+    }
+    if (nameLower.includes("canned") || nameLower.includes("tomato") || nameLower.includes("soup")) {
+        return 730;
+    }
+    return 30;
+}
+
+// Initialize LocalStorage data structures if running in static mode
+function initLocalStorageData() {
+    if (!localStorage.getItem('warehouse_inventory')) {
+        const initialInventory = [];
+        const zones = ['A', 'B', 'C'];
+        let id = 1;
+        zones.forEach(zone => {
+            for (let num = 1; num <= 10; num++) {
+                initialInventory.push({
+                    id: id++,
+                    zone: zone,
+                    rack_number: num,
+                    product_name: null,
+                    box_id: null,
+                    expiry_date: null,
+                    status: 'Empty'
+                });
+            }
+        });
+        // Private Zone P (Racks P1 and P2) -> IDs 31 and 32
+        initialInventory.push({
+            id: 31,
+            zone: 'P',
+            rack_number: 1,
+            product_name: null,
+            box_id: null,
+            expiry_date: null,
+            status: 'Empty'
+        });
+        initialInventory.push({
+            id: 32,
+            zone: 'P',
+            rack_number: 2,
+            product_name: null,
+            box_id: null,
+            expiry_date: null,
+            status: 'Empty'
+        });
+        localStorage.setItem('warehouse_inventory', JSON.stringify(initialInventory));
+    }
+    if (!localStorage.getItem('warehouse_logs')) {
+        const initialLogs = [{
+            timestamp: new Date().toLocaleTimeString(),
+            message: "Static local storage inventory initialized.",
+            type: "info"
+        }];
+        localStorage.setItem('warehouse_logs', JSON.stringify(initialLogs));
+    }
+}
+
+if (isStaticPages) {
+    initLocalStorageData();
+    // Update the system status label to indicate browser sandbox mode
+    document.addEventListener('DOMContentLoaded', () => {
+        const label = document.getElementById('status-daemon-label');
+        if (label) {
+            label.innerText = "LOCALSTORAGE ACTIVE (DEMO)";
+            label.style.color = "#8b5cf6";
+            const pulseDot = document.querySelector('.status-pulse-dot');
+            if (pulseDot) {
+                pulseDot.style.backgroundColor = "#8b5cf6";
+                pulseDot.style.boxShadow = "0 0 8px #8b5cf6";
+            }
+        }
+    });
+}
+
 // DOM Elements
 const gridMap = document.getElementById('warehouse-grid-map');
 const detailsCard = document.getElementById('rack-details-card');
@@ -44,6 +173,50 @@ updateClock();
 
 // Fetch Latest Inventory Data
 async function fetchInventory() {
+    if (isStaticPages) {
+        const data = JSON.parse(localStorage.getItem('warehouse_inventory') || '[]');
+        const today = new Date();
+        today.setHours(0,0,0,0);
+        
+        inventory = data.map(item => {
+            const newItem = { ...item };
+            if (newItem.product_name && newItem.expiry_date) {
+                const expiryDt = new Date(newItem.expiry_date);
+                expiryDt.setHours(0,0,0,0);
+                const diffTime = expiryDt - today;
+                const daysLeft = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                
+                if (daysLeft <= 7) {
+                    newItem.status = 'Expiring';
+                } else {
+                    newItem.status = 'Safe';
+                }
+                newItem.days_remaining = daysLeft;
+
+                if (newItem.zone === 'P') {
+                    newItem.display_name = `[Private] ${newItem.product_name}`;
+                } else {
+                    newItem.display_name = newItem.product_name;
+                }
+            } else {
+                newItem.days_remaining = null;
+                if (newItem.zone === 'P') {
+                    newItem.status = 'Private';
+                    newItem.display_name = newItem.rack_number === 1 ? "Pinky's Private Locker" : "Vinod's Private Locker";
+                } else {
+                    newItem.status = 'Empty';
+                    newItem.display_name = 'Open Bay';
+                }
+            }
+            return newItem;
+        });
+
+        renderGrid();
+        updateKPIs();
+        updateDetailsPanelIfSelectedChanged();
+        return;
+    }
+
     try {
         const response = await fetch('/api/inventory');
         if (response.ok) {
@@ -59,6 +232,12 @@ async function fetchInventory() {
 
 // Fetch Latest System Terminal Logs
 async function fetchLogs() {
+    if (isStaticPages) {
+        const logs = JSON.parse(localStorage.getItem('warehouse_logs') || '[]');
+        renderLogs(logs);
+        return;
+    }
+
     try {
         const response = await fetch('/api/system_log');
         if (response.ok) {
@@ -80,8 +259,15 @@ function renderLogs(logs) {
     logs.forEach(log => {
         const row = document.createElement('div');
         row.className = `terminal-row ${log.type}`;
+        
+        // Extract time for display
+        let timeDisplay = log.timestamp;
+        if (log.timestamp.includes(' ')) {
+            timeDisplay = log.timestamp.split(' ')[1];
+        }
+        
         row.innerHTML = `
-            <span class="terminal-time">[${log.timestamp.split(' ')[1]}]</span>
+            <span class="terminal-time">[${timeDisplay}]</span>
             <span class="terminal-msg">${log.message}</span>
         `;
         terminalLogsList.appendChild(row);
@@ -105,11 +291,10 @@ function updateKPIs() {
 function renderGrid() {
     gridMap.innerHTML = '';
 
-    // Filter and display inventory according to selected Zone and Filter buttons
     const filteredInventory = inventory.filter(item => {
         const zoneMatch = (currentZone === 'all' || item.zone === currentZone);
         const filterMatch = (currentFilter === 'all' || 
-                             (currentFilter === 'Empty' && item.status === 'Empty') ||
+                             (currentFilter === 'Empty' && (item.status === 'Empty' || item.status === 'Private')) ||
                              (currentFilter === 'Safe' && item.status === 'Safe') ||
                              (currentFilter === 'Expiring' && item.status === 'Expiring'));
         return zoneMatch && filterMatch;
@@ -129,7 +314,6 @@ function renderGrid() {
 
         const badgeLabel = item.status === 'Empty' ? 'VACANT' : (item.status === 'Private' ? 'PRIVATE' : item.status.toUpperCase());
         
-        // Expiry date summary text
         let footerText = 'VACANT';
         if (item.status === 'Private') {
             footerText = 'PRIVATE';
@@ -158,7 +342,6 @@ function renderGrid() {
 function selectRack(id) {
     selectedRackId = id;
     
-    // Highlight selected tile
     document.querySelectorAll('.rack-tile').forEach(tile => {
         if (parseInt(tile.getAttribute('data-id')) === id) {
             tile.classList.add('selected');
@@ -186,15 +369,13 @@ function updateDetailsPanel() {
     detailsEmptyState.classList.add('hidden');
     detailsActiveState.classList.remove('hidden');
     
-    // Set Badge Class
     detailsBadge.className = `status-badge ${item.status.toLowerCase()}`;
     detailsBadge.innerText = item.status === 'Empty' ? 'VACANT' : item.status.toUpperCase();
 
-    // Set Text Fields
     detailsLocation.innerText = `Zone ${item.zone} // Rack ${item.rack_number}`;
     
-    if (item.status === 'Empty') {
-        detailsProduct.innerText = 'Open Bay - Available';
+    if (item.status === 'Empty' || item.status === 'Private') {
+        detailsProduct.innerText = item.status === 'Private' ? 'Private Storage Locker' : 'Open Bay - Available';
         detailsBarcode.innerText = 'N/A';
         detailsExpiry.innerText = 'N/A';
         detailsDaysLeft.innerText = 'N/A';
@@ -222,6 +403,35 @@ async function dispatchItem() {
     const confirmDispatch = confirm("Are you sure you want to DISPATCH and remove this item from the warehouse registry?");
     if (!confirmDispatch) return;
 
+    if (isStaticPages) {
+        const data = JSON.parse(localStorage.getItem('warehouse_inventory') || '[]');
+        const idx = data.findIndex(item => item.id === selectedRackId);
+        if (idx !== -1) {
+            const item = data[idx];
+            const pName = item.product_name;
+            item.product_name = null;
+            item.box_id = null;
+            item.expiry_date = null;
+            item.status = item.zone === 'P' ? 'Private' : 'Empty';
+            localStorage.setItem('warehouse_inventory', JSON.stringify(data));
+            
+            const logs = JSON.parse(localStorage.getItem('warehouse_logs') || '[]');
+            const timestamp = new Date().toLocaleTimeString();
+            logs.unshift({
+                timestamp: timestamp,
+                message: `Dispatched '${pName}' from Rack ${item.zone}${item.rack_number}. Rack is now vacant.`,
+                type: "info"
+            });
+            localStorage.setItem('warehouse_logs', JSON.stringify(logs));
+            
+            selectedRackId = null;
+            await fetchInventory();
+            await fetchLogs();
+            updateDetailsPanel();
+        }
+        return;
+    }
+
     try {
         const response = await fetch('/api/dispatch', {
             method: 'POST',
@@ -232,7 +442,6 @@ async function dispatchItem() {
         if (response.ok) {
             const res = await response.json();
             if (res.success) {
-                // Clear selection and refresh
                 selectedRackId = null;
                 await fetchInventory();
                 await fetchLogs();
@@ -250,6 +459,64 @@ async function dispatchItem() {
 async function handleSimScan(barcode) {
     if (!barcode) return;
     
+    if (isStaticPages) {
+        const data = JSON.parse(localStorage.getItem('warehouse_inventory') || '[]');
+        const emptyRack = data.find(item => (item.status === 'Empty' || item.status === 'Private') && item.zone !== 'P');
+        
+        if (emptyRack) {
+            let productName = MOCK_PRODUCTS[barcode];
+            let isResolvedLocally = true;
+            if (!productName) {
+                productName = `Generic Item (${barcode.slice(-6)})`;
+                isResolvedLocally = false;
+            }
+            
+            const shelfLife = getShelfLifeDays(productName);
+            const today = new Date();
+            today.setDate(today.getDate() + shelfLife);
+            const expiryStr = today.toISOString().split('T')[0];
+            
+            emptyRack.product_name = productName;
+            emptyRack.box_id = barcode;
+            emptyRack.expiry_date = expiryStr;
+            emptyRack.status = 'Safe';
+            
+            localStorage.setItem('warehouse_inventory', JSON.stringify(data));
+            
+            const logs = JSON.parse(localStorage.getItem('warehouse_logs') || '[]');
+            const timestamp = new Date().toLocaleTimeString();
+            
+            if (isResolvedLocally) {
+                logs.unshift({
+                    timestamp: timestamp,
+                    message: `Resolved barcode ${barcode} locally from system catalog.`,
+                    type: "success"
+                });
+            }
+            logs.unshift({
+                timestamp: timestamp,
+                message: `Placed '${productName}' (Box: ${barcode}) into Rack ${emptyRack.zone}${emptyRack.rack_number}.`,
+                type: "success"
+            });
+            localStorage.setItem('warehouse_logs', JSON.stringify(logs));
+            
+            simBarcodeInput.value = '';
+            await fetchInventory();
+            await fetchLogs();
+        } else {
+            const logs = JSON.parse(localStorage.getItem('warehouse_logs') || '[]');
+            const timestamp = new Date().toLocaleTimeString();
+            logs.unshift({
+                timestamp: timestamp,
+                message: `CAPACITY ALERT: Barcode ${barcode} scanned, but all warehouse racks are FULL!`,
+                type: "danger"
+            });
+            localStorage.setItem('warehouse_logs', JSON.stringify(logs));
+            await fetchLogs();
+        }
+        return;
+    }
+
     try {
         const response = await fetch('/api/sim_scan', {
             method: 'POST',
@@ -259,7 +526,6 @@ async function handleSimScan(barcode) {
 
         if (response.ok) {
             simBarcodeInput.value = '';
-            // Immediate update
             await fetchInventory();
             await fetchLogs();
         }
@@ -312,7 +578,6 @@ simScanForm.addEventListener('submit', (e) => {
 function openWebcamScanner() {
     scannerModal.classList.remove('hidden');
     
-    // Check if library loaded
     if (typeof Html5QrcodeScanner === 'undefined') {
         document.getElementById('scanner-reader').innerText = "Scanner library failed to load. Check your internet connection.";
         return;
@@ -320,7 +585,6 @@ function openWebcamScanner() {
 
     if (html5QrcodeScanner) return; // already initialized
 
-    // Explicitly enable EAN-13 and other common formats to speed up 1D barcode detection
     let formatsToSupport = [];
     if (typeof Html5QrcodeSupportedFormats !== 'undefined') {
         formatsToSupport = [
@@ -338,7 +602,7 @@ function openWebcamScanner() {
         "scanner-reader",
         {
             fps: 20,
-            qrbox: { width: 300, height: 120 }, // Viewport optimized for 1D barcodes
+            qrbox: { width: 300, height: 120 },
             rememberLastUsedCamera: true,
             ...(formatsToSupport.length > 0 ? { formatsToSupport: formatsToSupport } : {})
         },
@@ -347,13 +611,10 @@ function openWebcamScanner() {
 
     html5QrcodeScanner.render(
         (decodedText) => {
-            // Successful scan
             handleSimScan(decodedText);
             closeWebcamScanner();
         },
-        (err) => {
-            // Error callback for frame match failure (frequent, ignore)
-        }
+        (err) => {}
     );
 }
 
