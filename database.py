@@ -34,19 +34,11 @@ def init_db():
                 VALUES (?, ?, NULL, NULL, NULL, 'Empty')
             ''', (zone, num))
 
-    # Insert Zone P (Private Locker) racks for Pinky and Vinod
-    cursor.execute('''
-        INSERT INTO racks (zone, rack_number, product_name, box_id, expiry_date, status)
-        VALUES ('P', 1, NULL, NULL, NULL, 'Empty')
-    ''')
-    cursor.execute('''
-        INSERT INTO racks (zone, rack_number, product_name, box_id, expiry_date, status)
-        VALUES ('P', 2, NULL, NULL, NULL, 'Empty')
-    ''')
+
 
     conn.commit()
     conn.close()
-    print("Database initialized successfully with 30 vacant racks and 2 private lockers.")
+    print("Database initialized successfully with 30 vacant racks.")
 
 if __name__ == '__main__':
     init_db()

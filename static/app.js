@@ -85,25 +85,6 @@ function initLocalStorageData() {
                 });
             }
         });
-        // Private Zone P (Racks P1 and P2) -> IDs 31 and 32
-        initialInventory.push({
-            id: 31,
-            zone: 'P',
-            rack_number: 1,
-            product_name: null,
-            box_id: null,
-            expiry_date: null,
-            status: 'Empty'
-        });
-        initialInventory.push({
-            id: 32,
-            zone: 'P',
-            rack_number: 2,
-            product_name: null,
-            box_id: null,
-            expiry_date: null,
-            status: 'Empty'
-        });
         localStorage.setItem('warehouse_inventory', JSON.stringify(initialInventory));
     }
     if (!localStorage.getItem('warehouse_logs')) {
@@ -193,20 +174,11 @@ async function fetchInventory() {
                 }
                 newItem.days_remaining = daysLeft;
 
-                if (newItem.zone === 'P') {
-                    newItem.display_name = `[Private] ${newItem.product_name}`;
-                } else {
-                    newItem.display_name = newItem.product_name;
-                }
+                newItem.display_name = newItem.product_name;
             } else {
                 newItem.days_remaining = null;
-                if (newItem.zone === 'P') {
-                    newItem.status = 'Private';
-                    newItem.display_name = newItem.rack_number === 1 ? "Pinky's Private Locker" : "Vinod's Private Locker";
-                } else {
-                    newItem.status = 'Empty';
-                    newItem.display_name = 'Open Bay';
-                }
+                newItem.status = 'Empty';
+                newItem.display_name = 'Open Bay';
             }
             return newItem;
         });
@@ -294,7 +266,7 @@ function renderGrid() {
     const filteredInventory = inventory.filter(item => {
         const zoneMatch = (currentZone === 'all' || item.zone === currentZone);
         const filterMatch = (currentFilter === 'all' || 
-                             (currentFilter === 'Empty' && (item.status === 'Empty' || item.status === 'Private')) ||
+                             (currentFilter === 'Empty' && item.status === 'Empty') ||
                              (currentFilter === 'Safe' && item.status === 'Safe') ||
                              (currentFilter === 'Expiring' && item.status === 'Expiring'));
         return zoneMatch && filterMatch;
@@ -312,12 +284,10 @@ function renderGrid() {
         tile.className = `rack-tile ${stateClass} ${selectedClass}`;
         tile.setAttribute('data-id', item.id);
 
-        const badgeLabel = item.status === 'Empty' ? 'VACANT' : (item.status === 'Private' ? 'PRIVATE' : item.status.toUpperCase());
+        const badgeLabel = item.status === 'Empty' ? 'VACANT' : item.status.toUpperCase();
         
         let footerText = 'VACANT';
-        if (item.status === 'Private') {
-            footerText = 'PRIVATE';
-        } else if (item.status !== 'Empty') {
+        if (item.status !== 'Empty') {
             footerText = `${item.days_remaining}d left`;
         }
 
@@ -374,8 +344,8 @@ function updateDetailsPanel() {
 
     detailsLocation.innerText = `Zone ${item.zone} // Rack ${item.rack_number}`;
     
-    if (item.status === 'Empty' || item.status === 'Private') {
-        detailsProduct.innerText = item.status === 'Private' ? 'Private Storage Locker' : 'Open Bay - Available';
+    if (item.status === 'Empty') {
+        detailsProduct.innerText = 'Open Bay - Available';
         detailsBarcode.innerText = 'N/A';
         detailsExpiry.innerText = 'N/A';
         detailsDaysLeft.innerText = 'N/A';
@@ -412,7 +382,7 @@ async function dispatchItem() {
             item.product_name = null;
             item.box_id = null;
             item.expiry_date = null;
-            item.status = item.zone === 'P' ? 'Private' : 'Empty';
+            item.status = 'Empty';
             localStorage.setItem('warehouse_inventory', JSON.stringify(data));
             
             const logs = JSON.parse(localStorage.getItem('warehouse_logs') || '[]');
@@ -461,7 +431,7 @@ async function handleSimScan(barcode) {
     
     if (isStaticPages) {
         const data = JSON.parse(localStorage.getItem('warehouse_inventory') || '[]');
-        const emptyRack = data.find(item => (item.status === 'Empty' || item.status === 'Private') && item.zone !== 'P');
+        const emptyRack = data.find(item => item.status === 'Empty' && item.zone !== 'P');
         
         if (emptyRack) {
             let productName = MOCK_PRODUCTS[barcode];

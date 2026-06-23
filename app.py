@@ -140,8 +140,8 @@ def process_scanned_barcode(barcode):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    # Find the first empty slot (excluding private Zone P)
-    cursor.execute("SELECT id, zone, rack_number FROM racks WHERE status = 'Empty' AND zone != 'P' LIMIT 1")
+    # Find the first empty slot
+    cursor.execute("SELECT id, zone, rack_number FROM racks WHERE status = 'Empty' LIMIT 1")
     empty_rack = cursor.fetchone()
 
     if empty_rack:
@@ -237,20 +237,11 @@ def get_inventory():
             except Exception:
                 item['days_remaining'] = 0
             
-            # If it's a filled private locker
-            if item['zone'] == 'P':
-                owner = "Pinky" if item['rack_number'] == 1 else "Vinod"
-                item['display_name'] = f"[Private] {item['product_name']}"
-            else:
-                item['display_name'] = item['product_name']
+            item['display_name'] = item['product_name']
         else:
             item['days_remaining'] = None
-            if item['zone'] == 'P':
-                item['status'] = 'Private'
-                item['display_name'] = "Pinky's Private Locker" if item['rack_number'] == 1 else "Vinod's Private Locker"
-            else:
-                item['status'] = 'Empty'
-                item['display_name'] = 'Open Bay'
+            item['status'] = 'Empty'
+            item['display_name'] = 'Open Bay'
         inventory.append(item)
 
     return jsonify(inventory)
